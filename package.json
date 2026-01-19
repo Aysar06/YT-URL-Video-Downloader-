@@ -1,0 +1,51 @@
+{
+  "name": "youtube-url-video-installer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "start:electron": "electron .",
+    "build:exe": "electron-packager . \"YouTube Video Downloader\" --platform=win32 --arch=x64 --out=dist --overwrite",
+    "build:installer": "electron-builder --win nsis",
+    "test": "node --test",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "yt-dlp-wrap": "^2.3.12"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-packager": "^17.1.2",
+    "eslint": "^9.16.0",
+    "globals": "^15.12.0"
+  },
+  "build": {
+    "appId": "com.trae.youtubevideodownloader",
+    "productName": "YouTube Video Downloader",
+    "files": [
+      "electron/**",
+      "src/**",
+      "public/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
+

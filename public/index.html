@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Video Downloader</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>YouTube Video Downloader</h1>
+        <p class="subtitle">
+          Download videos for offline viewing. Use only where you have the rights or permission.
+        </p>
+      </header>
+
+      <section class="card">
+        <label class="label" for="urlInput">YouTube URL</label>
+        <div class="row">
+          <input
+            id="urlInput"
+            class="input"
+            type="url"
+            placeholder="Paste a YouTube video or Shorts link"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="fetchBtn" class="button">Fetch Video</button>
+        </div>
+        <div class="row">
+          <label class="label" for="downloadDir">Download folder (optional)</label>
+          <input
+            id="downloadDir"
+            class="input"
+            type="text"
+            placeholder="Defaults to your Downloads folder"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section id="infoCard" class="card hidden">
+        <div class="meta">
+          <div class="metaTitle" id="videoTitle"></div>
+          <div class="metaSub" id="videoMeta"></div>
+        </div>
+
+        <label class="label" for="qualitySelect">Quality</label>
+        <select id="qualitySelect" class="select"></select>
+
+        <div class="row">
+          <button id="downloadBtn" class="button primary" disabled>Start Download</button>
+          <a id="saveLink" class="button hidden" href="#" download>Save File</a>
+        </div>
+
+        <div id="progressWrap" class="progressWrap hidden" aria-live="polite">
+          <div class="progressBar">
+            <div id="progressFill" class="progressFill" style="width: 0%"></div>
+          </div>
+          <div id="progressText" class="progressText"></div>
+        </div>
+      </section>
+
+      <section class="disclaimer">
+        <h2>Copyright & Fair Use</h2>
+        <p>
+          This tool is provided for lawful uses only (e.g., content you own, have permission to
+          download, or where downloading is otherwise allowed). You are responsible for complying
+          with YouTube’s Terms of Service and applicable copyright laws.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
+
