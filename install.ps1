@@ -44,6 +44,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$script:LogFilePath = $LogPath
+$script:IsWindowsOS = $false
+try {
+  $script:IsWindowsOS = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+} catch {
+  $script:IsWindowsOS = ($env:OS -eq "Windows_NT")
+}
+
 function Write-Log {
   param(
     [Parameter(Mandatory)]
@@ -54,6 +62,11 @@ function Write-Log {
   )
   $line = "[{0:yyyy-MM-dd HH:mm:ss}] [{1}] {2}" -f (Get-Date), $Level, $Message
   Write-Host $line
+  try {
+    if ($script:LogFilePath) {
+      Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8
+    }
+  } catch { }
 }
 
 function Fail {
@@ -136,6 +149,10 @@ function Invoke-DownloadFile {
     [string]$Token
   )
 
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+  } catch { }
+
   $headers = @{
     "User-Agent" = "ytvd-installer"
     "Accept" = "application/vnd.github+json"
@@ -146,7 +163,11 @@ function Invoke-DownloadFile {
   }
 
   if ($PSCmdlet.ShouldProcess($Url, "Download")) {
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+      Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers
+    } else {
+      Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+    }
   }
 }
 
@@ -226,6 +247,10 @@ function Test-Prerequisites {
     Fail "PowerShell 5.1+ is required."
   }
 
+  if (-not $script:IsWindowsOS) {
+    Fail "This installer supports Windows only."
+  }
+
   try {
     $pol = Get-ExecutionPolicy -Scope Process
     Write-Log "ExecutionPolicy (Process): $pol"
@@ -302,9 +327,7 @@ function Get-Source {
   Write-Log "Downloading repository zip..."
   $zipPath = Join-Path $WorkDir "repo.zip"
   $defaultBranch = $null
-  if ($Token) {
-    $defaultBranch = Get-GitHubDefaultBranch -RepoUrl $RepoUrl -Token $Token
-  }
+  $defaultBranch = Get-GitHubDefaultBranch -RepoUrl $RepoUrl -Token $Token
 
   $branchCandidates = @($Branch, $defaultBranch, "main", "master") | Where-Object { $_ } | Select-Object -Unique
   $downloaded = $false
@@ -312,9 +335,7 @@ function Get-Source {
 
   foreach ($b in $branchCandidates) {
     $urls = @()
-    if ($Token) {
-      $urls += (Get-RepoApiZipballUrl -RepoUrl $RepoUrl -Ref $b)
-    }
+    $urls += (Get-RepoApiZipballUrl -RepoUrl $RepoUrl -Ref $b)
     $urls += (Get-RepoZipUrl -RepoUrl $RepoUrl -Branch $b)
 
     foreach ($u in $urls) {
@@ -423,12 +444,16 @@ function Create-Shortcuts {
 
 try {
   Ensure-Directory (Split-Path -Parent $LogPath)
-  Start-Transcript -LiteralPath $LogPath -Force | Out-Null
+  try { Start-Transcript -LiteralPath $LogPath -Force | Out-Null } catch { }
 
   Write-Log "Starting installation..."
   Write-Log "Log file: $LogPath"
 
   Test-Prerequisites
+  if ($WhatIfPreference) {
+    Write-Log "WhatIf mode enabled: skipping download/build/install steps."
+    exit 0
+  }
 
   Write-Progress -Activity "Installing" -Status "Fetching source" -PercentComplete 10
   $sourceDir = Get-Source -RepoUrl $RepoUrl -Branch $Branch -WorkDir $WorkDir -Token $GitHubToken
@@ -449,6 +474,9 @@ try {
 } catch {
   Write-Progress -Activity "Installing" -Completed -Status "Failed"
   Write-Log -Level "ERROR" -Message ("Installation failed: {0}" -f $_.Exception.Message)
+  try {
+    if ($_.ScriptStackTrace) { Write-Log -Level "ERROR" -Message ("Stack: {0}" -f $_.ScriptStackTrace) }
+  } catch { }
   Write-Log -Level "ERROR" -Message "See log: $LogPath"
   exit 1
 } finally {
