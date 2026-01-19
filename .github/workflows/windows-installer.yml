@@ -31,6 +31,9 @@ jobs:
       - name: Build installer (web installer)
         run: npm run build:installer
 
+      - name: List build outputs
+        run: powershell -NoProfile -Command "Get-ChildItem dist/nsis-web | Select-Object Name,Length | Format-Table -AutoSize"
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -44,9 +47,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $repo = "${{ github.repository }}"
           $tag = "${{ github.ref_name }}"
-          gh release view $tag 2>$null
+          gh release view $tag --repo $repo 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title $tag --generate-notes
+            gh release create $tag --repo $repo --title $tag --generate-notes
           }
-          gh release upload $tag dist/nsis-web/* --clobber
+          gh release upload $tag dist/nsis-web/* --repo $repo --clobber
+          gh release view $tag --repo $repo
