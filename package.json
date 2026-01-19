@@ -2,6 +2,8 @@
   "name": "youtube-url-video-installer",
   "version": "0.1.0",
   "private": true,
+  "description": "Personal YouTube URL video downloader desktop app",
+  "author": "Aysar06",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
