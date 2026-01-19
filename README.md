@@ -1,1 +1,1 @@
-Install and enjoy 
+download the 7z files in Releases and enjoy 
