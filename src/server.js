@@ -249,8 +249,7 @@ export async function startServer({ port } = {}) {
   });
 }
 
-const entryArg = process.argv?.[1];
-if (typeof entryArg === "string" && import.meta.url === pathToFileURL(entryArg).href) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   startServer()
     .then(({ port }) => {
       process.stdout.write(`Server running on http://localhost:${port}\n`);
