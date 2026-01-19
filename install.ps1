@@ -553,7 +553,7 @@ try {
   Test-Prerequisites
   if ($WhatIfPreference) {
     Write-Log "WhatIf mode enabled: skipping download/build/install steps."
-    exit 0
+    return
   }
 
   if ($InstallMode -eq "Release") {
@@ -576,7 +576,7 @@ try {
   Write-Progress -Activity "Installing" -Completed -Status "Done"
   Write-Log "Installation complete."
   Write-Log "You can run the app from Start Menu or: $InstallDir"
-  exit 0
+  return
 } catch {
   Write-Progress -Activity "Installing" -Completed -Status "Failed"
   Write-Log -Level "ERROR" -Message ("Installation failed: {0}" -f $_.Exception.Message)
@@ -584,7 +584,7 @@ try {
     if ($_.ScriptStackTrace) { Write-Log -Level "ERROR" -Message ("Stack: {0}" -f $_.ScriptStackTrace) }
   } catch { }
   Write-Log -Level "ERROR" -Message "See log: $LogPath"
-  exit 1
+  throw
 } finally {
   try { Stop-Transcript | Out-Null } catch { }
 }
