@@ -39,8 +39,14 @@ jobs:
             dist/nsis-web/*
           if-no-files-found: error
 
-      - name: Create GitHub Release (tags only)
+      - name: Create release and upload assets (tags only)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/nsis-web/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag --generate-notes
+          }
+          gh release upload $tag dist/nsis-web/* --clobber
