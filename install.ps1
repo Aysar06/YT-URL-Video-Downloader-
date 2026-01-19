@@ -28,6 +28,17 @@ param(
   [string]$GitHubToken,
 
   [Parameter()]
+  [ValidateSet("Release", "Source")]
+  [string]$InstallMode = "Release",
+
+  [Parameter()]
+  [string]$ReleaseTag,
+
+  [Parameter()]
+  [ValidateNotNullOrEmpty()]
+  [string]$AssetNamePattern = "*Setup*.exe",
+
+  [Parameter()]
   [switch]$Silent,
 
   [Parameter()]
@@ -119,25 +130,41 @@ function Get-RepoApiZipballUrl {
   Fail "RepoUrl must be a GitHub repo URL (https://github.com/<owner>/<repo>.git)."
 }
 
+function Get-RepoSlug {
+  param([Parameter(Mandatory)][string]$RepoUrl)
+  if ($RepoUrl -match "github\.com[:/](?<owner>[^/]+)/(?<repo>[^/.]+)(\.git)?$") {
+    return @{ Owner = $Matches.owner; Repo = $Matches.repo }
+  }
+  Fail "RepoUrl must be a GitHub repo URL (https://github.com/<owner>/<repo>.git)."
+}
+
+function Get-GitHubApiHeaders {
+  param([string]$Token)
+  $headers = @{
+    "User-Agent" = "ytvd-installer"
+    "Accept" = "application/vnd.github+json"
+  }
+  if ($Token) {
+    $headers["Authorization"] = "Bearer $Token"
+    $headers["X-GitHub-Api-Version"] = "2022-11-28"
+  }
+  return $headers
+}
+
 function Get-GitHubDefaultBranch {
   param(
     [Parameter(Mandatory)][string]$RepoUrl,
     [string]$Token
   )
 
-  if ($RepoUrl -match "github\.com[:/](?<owner>[^/]+)/(?<repo>[^/.]+)(\.git)?$") {
-    $owner = $Matches.owner
-    $repo = $Matches.repo
-    $apiUrl = "https://api.github.com/repos/$owner/$repo"
+  $slug = Get-RepoSlug -RepoUrl $RepoUrl
+  $apiUrl = "https://api.github.com/repos/$($slug.Owner)/$($slug.Repo)"
+  $headers = Get-GitHubApiHeaders -Token $Token
 
-    $headers = @{ "User-Agent" = "ytvd-installer" }
-    if ($Token) { $headers["Authorization"] = "Bearer $Token" }
-
-    try {
-      $resp = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
-      if ($resp.default_branch) { return [string]$resp.default_branch }
-    } catch { }
-  }
+  try {
+    $resp = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
+    if ($resp.default_branch) { return [string]$resp.default_branch }
+  } catch { }
 
   return $null
 }
@@ -153,14 +180,7 @@ function Invoke-DownloadFile {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
   } catch { }
 
-  $headers = @{
-    "User-Agent" = "ytvd-installer"
-    "Accept" = "application/vnd.github+json"
-  }
-  if ($Token) {
-    $headers["Authorization"] = "Bearer $Token"
-    $headers["X-GitHub-Api-Version"] = "2022-11-28"
-  }
+  $headers = Get-GitHubApiHeaders -Token $Token
 
   if ($PSCmdlet.ShouldProcess($Url, "Download")) {
     if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -256,19 +276,21 @@ function Test-Prerequisites {
     Write-Log "ExecutionPolicy (Process): $pol"
   } catch { }
 
-  if (-not (Test-Command "node")) {
-    Fail "Node.js is required. Install Node.js 20+ and re-run."
-  }
+  if ($InstallMode -eq "Source") {
+    if (-not (Test-Command "node")) {
+      Fail "Node.js is required for InstallMode=Source. Install Node.js 20+ and re-run."
+    }
 
-  $nodeVersion = (& node -v) 2>$null
-  Write-Log "Node version: $nodeVersion"
+    $nodeVersion = (& node -v) 2>$null
+    Write-Log "Node version: $nodeVersion"
 
-  if (-not (Test-Command "npm")) {
-    Fail "npm is required (it should come with Node.js)."
-  }
+    if (-not (Test-Command "npm")) {
+      Fail "npm is required (it should come with Node.js)."
+    }
 
-  if ($SourceMethod -eq "Git" -and -not (Test-Command "git")) {
-    Fail "Git is required for SourceMethod=Git. Install Git or use SourceMethod=Zip."
+    if ($SourceMethod -eq "Git" -and -not (Test-Command "git")) {
+      Fail "Git is required for SourceMethod=Git. Install Git or use SourceMethod=Zip."
+    }
   }
 
   if (-not (Test-Command "ffmpeg")) {
@@ -295,6 +317,85 @@ function Test-Prerequisites {
   } else {
     Write-Log -Level "WARN" -Message ".NET not detected (not required for this app)."
   }
+}
+
+function Get-ReleaseAsset {
+  param(
+    [Parameter(Mandatory)][string]$RepoUrl,
+    [string]$Token,
+    [string]$Tag,
+    [Parameter(Mandatory)][string]$AssetNamePattern
+  )
+
+  $slug = Get-RepoSlug -RepoUrl $RepoUrl
+  $headers = Get-GitHubApiHeaders -Token $Token
+  $releaseUrl = if ($Tag) {
+    "https://api.github.com/repos/$($slug.Owner)/$($slug.Repo)/releases/tags/$Tag"
+  } else {
+    "https://api.github.com/repos/$($slug.Owner)/$($slug.Repo)/releases/latest"
+  }
+
+  try {
+    $release = Invoke-RestMethod -Uri $releaseUrl -Headers $headers -Method Get
+  } catch {
+    Fail "Failed to query GitHub releases. If the repo is private, provide -GitHubToken."
+  }
+
+  $assets = @($release.assets)
+  if (-not $assets -or $assets.Count -eq 0) {
+    Fail "No release assets found. Create a release (tag v*) or use -InstallMode Source."
+  }
+
+  $asset = $assets | Where-Object { $_.name -like $AssetNamePattern } | Select-Object -First 1
+  if (-not $asset) {
+    $names = ($assets | ForEach-Object { $_.name }) -join ", "
+    Fail "No release asset matched '$AssetNamePattern'. Assets: $names"
+  }
+
+  return $asset
+}
+
+function Install-FromRelease {
+  param(
+    [Parameter(Mandatory)][string]$RepoUrl,
+    [string]$Token,
+    [string]$Tag,
+    [Parameter(Mandatory)][string]$InstallDir,
+    [Parameter(Mandatory)][string]$WorkDir,
+    [Parameter(Mandatory)][string]$AssetNamePattern
+  )
+
+  Ensure-Directory $WorkDir
+  $asset = Get-ReleaseAsset -RepoUrl $RepoUrl -Token $Token -Tag $Tag -AssetNamePattern $AssetNamePattern
+  $installerPath = Join-Path $WorkDir $asset.name
+
+  Write-Log ("Downloading installer: {0}" -f $asset.name)
+  Invoke-DownloadFile -Url $asset.browser_download_url -OutFile $installerPath -Token $Token
+
+  if (-not (Test-Path -LiteralPath $installerPath)) {
+    Fail "Download failed: $installerPath"
+  }
+
+  try {
+    $sig = Get-AuthenticodeSignature -LiteralPath $installerPath
+    if ($sig -and $sig.Status -ne "Valid") {
+      Write-Log -Level "WARN" -Message ("Installer signature status: {0}" -f $sig.Status)
+    }
+  } catch { }
+
+  Write-Log "Running installer..."
+  Ensure-Directory $InstallDir
+
+  if ($Silent) {
+    $args = @("/S", "/D=$InstallDir")
+    Invoke-External -FilePath $installerPath -ArgumentList $args -WorkingDirectory $InstallDir
+  } else {
+    Invoke-External -FilePath $installerPath -ArgumentList @() -WorkingDirectory $InstallDir
+  }
+
+  try {
+    Set-EnvVar -Name "YTVDDL_INSTALL_DIR" -Value $InstallDir -Scope $EnvScope
+  } catch { }
 }
 
 function Get-Source {
@@ -455,17 +556,22 @@ try {
     exit 0
   }
 
-  Write-Progress -Activity "Installing" -Status "Fetching source" -PercentComplete 10
-  $sourceDir = Get-Source -RepoUrl $RepoUrl -Branch $Branch -WorkDir $WorkDir -Token $GitHubToken
+  if ($InstallMode -eq "Release") {
+    Write-Progress -Activity "Installing" -Status "Downloading installer" -PercentComplete 25
+    Install-FromRelease -RepoUrl $RepoUrl -Token $GitHubToken -Tag $ReleaseTag -InstallDir $InstallDir -WorkDir $WorkDir -AssetNamePattern $AssetNamePattern
+  } else {
+    Write-Progress -Activity "Installing" -Status "Fetching source" -PercentComplete 10
+    $sourceDir = Get-Source -RepoUrl $RepoUrl -Branch $Branch -WorkDir $WorkDir -Token $GitHubToken
 
-  Write-Progress -Activity "Installing" -Status "Installing application" -PercentComplete 55
-  Install-App -SourceDir $sourceDir -InstallDir $InstallDir
+    Write-Progress -Activity "Installing" -Status "Installing application" -PercentComplete 55
+    Install-App -SourceDir $sourceDir -InstallDir $InstallDir
 
-  Write-Progress -Activity "Installing" -Status "Configuring" -PercentComplete 80
-  Configure-App -InstallDir $InstallDir -Scope $EnvScope
+    Write-Progress -Activity "Installing" -Status "Configuring" -PercentComplete 80
+    Configure-App -InstallDir $InstallDir -Scope $EnvScope
 
-  Write-Progress -Activity "Installing" -Status "Creating shortcuts" -PercentComplete 90
-  Create-Shortcuts -InstallDir $InstallDir
+    Write-Progress -Activity "Installing" -Status "Creating shortcuts" -PercentComplete 90
+    Create-Shortcuts -InstallDir $InstallDir
+  }
 
   Write-Progress -Activity "Installing" -Completed -Status "Done"
   Write-Log "Installation complete."
