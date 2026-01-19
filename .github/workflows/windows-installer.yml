@@ -28,19 +28,23 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build installer
+      - name: Build installer (web installer)
+        if: "!startsWith(github.ref, 'refs/tags/')"
         run: npm run build:installer
+
+      - name: Build + publish installer (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis-web --publish always
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: YouTube-Video-Downloader-Setup
-          path: dist/*Setup*.exe
+          path: |
+            dist/*Setup*.exe
+            dist/*.yml
+            dist/*.blockmap
+            dist/*.7z
           if-no-files-found: error
-
-      - name: Create GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*Setup*.exe
-

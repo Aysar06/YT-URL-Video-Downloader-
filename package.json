@@ -1,6 +1,6 @@
 {
   "name": "youtube-url-video-installer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Personal YouTube URL video downloader desktop app",
   "author": "Aysar06",
@@ -11,7 +11,7 @@
     "start": "node src/server.js",
     "start:electron": "electron .",
     "build:exe": "electron-packager . \"YouTube Video Downloader\" --platform=win32 --arch=x64 --out=dist --overwrite",
-    "build:installer": "electron-builder --win nsis",
+    "build:installer": "electron-builder --win nsis-web",
     "test": "node --test",
     "lint": "eslint ."
   },
@@ -30,6 +30,14 @@
   "build": {
     "appId": "com.trae.youtubevideodownloader",
     "productName": "YouTube Video Downloader",
+    "compression": "maximum",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Aysar06",
+        "repo": "YT-URL-Video-Downloader-"
+      }
+    ],
     "files": [
       "electron/**",
       "src/**",
@@ -40,7 +48,7 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis",
+      "target": "nsis-web",
       "signAndEditExecutable": false
     },
     "nsis": {
