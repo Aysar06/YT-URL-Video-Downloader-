@@ -1,6 +1,6 @@
 {
   "name": "youtube-url-video-installer",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
@@ -9,8 +9,8 @@
     "start": "node src/server.js",
     "start:electron": "electron .",
     "build:exe": "electron-packager . \"YouTube Video Downloader\" --platform=win32 --arch=x64 --out=dist --overwrite",
-    "build:installer": "electron-builder --win nsis",
-    "build:dmg": "electron-builder --mac dmg",
+    "build:installer": "electron-builder --win nsis --publish never",
+    "build:dmg": "electron-builder --mac dmg --publish never",
     "test": "node --test",
     "lint": "eslint ."
   },
