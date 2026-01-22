@@ -10,6 +10,7 @@
     "start:electron": "electron .",
     "build:exe": "electron-packager . \"YouTube Video Downloader\" --platform=win32 --arch=x64 --out=dist --overwrite",
     "build:installer": "electron-builder --win nsis",
+    "build:dmg": "electron-builder --mac dmg",
     "test": "node --test",
     "lint": "eslint ."
   },
@@ -45,7 +46,29 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }
-

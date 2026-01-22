@@ -1,0 +1,56 @@
+name: Build macOS Installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  macos-installer:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build DMG installer
+        run: npm run build:dmg
+
+      - name: List build outputs
+        run: ls -lh dist/
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTube-Video-Downloader-DMG
+          path: |
+            dist/*.dmg
+          if-no-files-found: error
+
+      - name: Create release and upload assets (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          tag="${{ github.ref_name }}"
+          if ! gh release view "$tag" --repo "$repo" 2>/dev/null; then
+            gh release create "$tag" --repo "$repo" --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" dist/*.dmg --repo "$repo" --clobber
+          gh release view "$tag" --repo "$repo"
