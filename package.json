@@ -1,6 +1,6 @@
 {
   "name": "youtube-url-video-installer",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
@@ -50,7 +50,8 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.utilities",
-      "icon": "build/icon.icns"
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "dmg": {
       "contents": [

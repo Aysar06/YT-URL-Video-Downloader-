@@ -3,7 +3,6 @@ name: Build Windows Installer
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch: {}
 
 permissions:
@@ -42,16 +41,3 @@ jobs:
             dist/*Setup*.exe
           if-no-files-found: error
 
-      - name: Create release and upload assets (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $repo = "${{ github.repository }}"
-          $tag = "${{ github.ref_name }}"
-          gh release view $tag --repo $repo 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --repo $repo --title $tag --generate-notes
-          }
-          gh release upload $tag dist/*Setup*.exe --repo $repo --clobber
-          gh release view $tag --repo $repo
