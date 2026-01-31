@@ -2,28 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import ytdl from '@distube/ytdl-core'
 import { rateLimit } from '@/lib/rate-limit'
 import { isValidYouTubeUrl, extractVideoId } from '@/lib/utils'
+import { Readable } from 'stream'
 
 // Vercel serverless function timeout is 60s for Hobby, 300s for Pro
 // We'll set a max timeout of 50s to be safe
 const MAX_DOWNLOAD_TIME = 50000
-
-// Helper function to download from URL with proper headers
-async function downloadFromUrl(url: string, headers: Record<string, string>): Promise<Buffer> {
-  const response = await fetch(url, {
-    headers: {
-      ...headers,
-      'Referer': 'https://www.youtube.com/',
-      'Origin': 'https://www.youtube.com',
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
-  return Buffer.from(arrayBuffer)
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,7 +45,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Enhanced request options with better headers
+    // Enhanced request options with latest headers
     const requestOptions = {
       requestOptions: {
         headers: {
@@ -72,41 +55,64 @@ export async function POST(request: NextRequest) {
           'Accept-Encoding': 'gzip, deflate, br',
           'Referer': 'https://www.youtube.com/',
           'Origin': 'https://www.youtube.com',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
         },
       },
     }
 
-    // Validate video availability
+    // Get video info with retry logic
     let videoInfo
-    try {
-      videoInfo = await ytdl.getInfo(videoId, requestOptions)
-    } catch (error: any) {
-      // Handle specific error codes
-      if (error.statusCode === 410) {
-        return NextResponse.json(
-          { error: 'Video is no longer available. YouTube may have removed it or changed access permissions.' },
-          { status: 410 }
-        )
+    let retryCount = 0
+    const maxRetries = 3
+
+    while (retryCount < maxRetries) {
+      try {
+        videoInfo = await ytdl.getInfo(videoId, requestOptions)
+        break // Success, exit retry loop
+      } catch (error: any) {
+        retryCount++
+        
+        if (retryCount >= maxRetries) {
+          // Handle specific error codes
+          if (error.statusCode === 410) {
+            return NextResponse.json(
+              { error: 'Video is no longer available. YouTube may have removed it or changed access permissions.' },
+              { status: 410 }
+            )
+          }
+          if (error.statusCode === 403 || error.statusCode === 401) {
+            return NextResponse.json(
+              { error: 'Access to this video is restricted. It may be private or region-locked.' },
+              { status: 403 }
+            )
+          }
+          if (error.message?.includes('Private video') || error.message?.includes('Video unavailable') || error.message?.includes('not found')) {
+            return NextResponse.json(
+              { error: 'Video is unavailable or private' },
+              { status: 404 }
+            )
+          }
+          if (error.message?.includes('Sign in to confirm your age')) {
+            return NextResponse.json(
+              { error: 'This video requires age verification and cannot be downloaded.' },
+              { status: 403 }
+            )
+          }
+          throw error
+        }
+        
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
       }
-      if (error.statusCode === 403 || error.statusCode === 401) {
-        return NextResponse.json(
-          { error: 'Access to this video is restricted. It may be private or region-locked.' },
-          { status: 403 }
-        )
-      }
-      if (error.message?.includes('Private video') || error.message?.includes('Video unavailable') || error.message?.includes('not found')) {
-        return NextResponse.json(
-          { error: 'Video is unavailable or private' },
-          { status: 404 }
-        )
-      }
-      if (error.message?.includes('Sign in to confirm your age')) {
-        return NextResponse.json(
-          { error: 'This video requires age verification and cannot be downloaded.' },
-          { status: 403 }
-        )
-      }
-      throw error
+    }
+
+    if (!videoInfo) {
+      return NextResponse.json(
+        { error: 'Failed to retrieve video information after multiple attempts' },
+        { status: 500 }
+      )
     }
 
     // Map quality string to height
@@ -119,125 +125,148 @@ export async function POST(request: NextRequest) {
 
     const targetHeight = qualityMap[quality] || 1080
 
-    // Try multiple format strategies
-    let selectedFormat = null
+    // Get available formats with multiple strategies
     let formats = ytdl.filterFormats(videoInfo.formats, 'videoandaudio')
     
-    // Strategy 1: Try to find exact quality with video+audio
-    if (formats.length > 0) {
-      selectedFormat = formats.find(
-        (format) => format.height === targetHeight && format.hasAudio && format.hasVideo
-      )
+    // Strategy 1: Try combined video+audio formats first
+    let selectedFormat = formats.find(
+      (format) => format.height === targetHeight && format.hasAudio && format.hasVideo
+    )
 
-      // Strategy 2: Find closest quality >= target
-      if (!selectedFormat) {
-        formats.sort((a, b) => (b.height || 0) - (a.height || 0))
-        selectedFormat = formats.find(f => (f.height || 0) >= targetHeight) || formats[0]
-      }
+    // Strategy 2: Find closest quality >= target
+    if (!selectedFormat && formats.length > 0) {
+      formats.sort((a, b) => (b.height || 0) - (a.height || 0))
+      selectedFormat = formats.find(f => (f.height || 0) >= targetHeight) || formats[0]
     }
 
-    // Strategy 3: If no combined formats, try separate video and audio
-    if (!selectedFormat || !selectedFormat.url) {
+    // Strategy 3: If no combined formats, try separate video and audio (ytdl will merge)
+    if (!selectedFormat) {
       const videoFormats = ytdl.filterFormats(videoInfo.formats, 'videoonly')
       const audioFormats = ytdl.filterFormats(videoInfo.formats, 'audioonly')
       
       if (videoFormats.length > 0 && audioFormats.length > 0) {
-        // Use highest quality video and best audio
+        // ytdl will automatically merge these
         videoFormats.sort((a, b) => (b.height || 0) - (a.height || 0))
         const bestVideo = videoFormats.find(f => (f.height || 0) >= targetHeight) || videoFormats[0]
-        const bestAudio = audioFormats[0] // Usually only one audio format
-        
-        // Try to download and merge (simplified - in production you'd want proper merging)
-        // For now, just use the video format
         selectedFormat = bestVideo
       }
     }
 
-    if (!selectedFormat || !selectedFormat.url) {
+    if (!selectedFormat) {
       return NextResponse.json(
         { error: 'No suitable video format available. The video may be restricted or unavailable.' },
         { status: 400 }
       )
     }
 
-    // Try to download the video using the format URL directly
-    let videoBuffer: Buffer
-    try {
-      // First, try using ytdl stream (original method)
-      const stream = ytdl(url, {
-        format: selectedFormat,
-        ...requestOptions,
-      })
+    // Try to create stream with multiple fallback strategies
+    let stream: NodeJS.ReadableStream
+    let streamCreated = false
+    const streamStrategies = [
+      // Strategy 1: Use selected format directly
+      () => {
+        if (selectedFormat && selectedFormat.hasAudio && selectedFormat.hasVideo) {
+          return ytdl(url, {
+            format: selectedFormat,
+            ...requestOptions,
+          })
+        }
+        return null
+      },
+      // Strategy 2: Use quality filter
+      () => {
+        return ytdl(url, {
+          quality: 'highest',
+          filter: 'videoandaudio',
+          ...requestOptions,
+        })
+      },
+      // Strategy 3: Use any available format
+      () => {
+        return ytdl(url, {
+          quality: 'lowest',
+          filter: 'videoandaudio',
+          ...requestOptions,
+        })
+      },
+    ]
 
-      // Collect stream data with timeout
-      const chunks: Buffer[] = []
-      const startTime = Date.now()
-      
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          stream.destroy()
-          reject(new Error('Download timeout'))
-        }, MAX_DOWNLOAD_TIME)
+    for (const strategy of streamStrategies) {
+      try {
+        const testStream = strategy()
+        if (testStream) {
+          stream = testStream
+          streamCreated = true
+          break
+        }
+      } catch (err) {
+        // Try next strategy
+        continue
+      }
+    }
+
+    if (!streamCreated || !stream) {
+      return NextResponse.json(
+        { error: 'Failed to create video stream. The video may be restricted or unavailable.' },
+        { status: 500 }
+      )
+    }
+
+    // Create a streaming response using ReadableStream
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        const startTime = Date.now()
+        let hasError = false
 
         stream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk)
+          if (hasError) return
+          
+          // Check timeout
           if (Date.now() - startTime > MAX_DOWNLOAD_TIME) {
-            clearTimeout(timeout)
             stream.destroy()
-            reject(new Error('Download timeout'))
+            controller.error(new Error('Download timeout'))
+            hasError = true
+            return
+          }
+          
+          try {
+            controller.enqueue(chunk)
+          } catch (err) {
+            hasError = true
+            stream.destroy()
           }
         })
 
         stream.on('end', () => {
-          clearTimeout(timeout)
-          resolve()
+          if (!hasError) {
+            controller.close()
+          }
         })
 
         stream.on('error', (error: Error) => {
-          clearTimeout(timeout)
-          reject(error)
-        })
-      })
-
-      videoBuffer = Buffer.concat(chunks)
-    } catch (streamError: any) {
-      // If stream fails with 410, try direct URL fetch as fallback
-      if (streamError.statusCode === 410 || streamError.message?.includes('410')) {
-        try {
-          console.log('Stream failed, trying direct URL fetch...')
-          videoBuffer = await downloadFromUrl(selectedFormat.url, requestOptions.requestOptions.headers)
-        } catch (directError: any) {
-          // If direct fetch also fails, try other formats
-          if (formats.length > 1) {
-            // Try the next best format
-            const alternativeFormats = formats.filter(f => f !== selectedFormat)
-            if (alternativeFormats.length > 0) {
-              selectedFormat = alternativeFormats[0]
-              try {
-                videoBuffer = await downloadFromUrl(selectedFormat.url, requestOptions.requestOptions.headers)
-              } catch {
-                throw new Error('All download methods failed. The video may be restricted or the format URLs are expired.')
-              }
-            } else {
-              throw new Error('Video format is no longer available. Please try again or select a different quality.')
-            }
+          hasError = true
+          // Check if it's a 410 error
+          if (error.message?.includes('410') || (error as any).statusCode === 410) {
+            controller.error(new Error('Video format is no longer available. Please try again or select a different quality.'))
           } else {
-            throw new Error('Video format is no longer available. Please try again or select a different quality.')
+            controller.error(new Error(`Stream error: ${error.message}`))
           }
-        }
-      } else {
-        throw streamError
-      }
-    }
+        })
+      },
+      cancel() {
+        stream.destroy()
+      },
+    })
 
     const title = videoInfo.videoDetails.title.replace(/[^\w\s-]/g, '').trim()
     const filename = `${title}.mp4`
 
-    return new NextResponse(videoBuffer, {
+    return new NextResponse(readableStream, {
       headers: {
         'Content-Type': 'video/mp4',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
-        'Content-Length': videoBuffer.length.toString(),
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
       },
     })
   } catch (error: any) {
