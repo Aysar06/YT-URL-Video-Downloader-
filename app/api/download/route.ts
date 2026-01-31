@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import ytdl from 'ytdl-core'
+import ytdl from '@distube/ytdl-core'
 import { rateLimit } from '@/lib/rate-limit'
 import { isValidYouTubeUrl, extractVideoId } from '@/lib/utils'
 
@@ -47,27 +47,45 @@ export async function POST(request: NextRequest) {
     // Validate video availability
     let videoInfo
     try {
-      videoInfo = await ytdl.getInfo(videoId)
+      videoInfo = await ytdl.getInfo(videoId, {
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          },
+        },
+      })
     } catch (error: any) {
-      if (error.message?.includes('Private video') || error.message?.includes('Video unavailable')) {
+      // Handle specific error codes
+      if (error.statusCode === 410) {
+        return NextResponse.json(
+          { error: 'Video is no longer available. YouTube may have removed it or changed access permissions.' },
+          { status: 410 }
+        )
+      }
+      if (error.statusCode === 403 || error.statusCode === 401) {
+        return NextResponse.json(
+          { error: 'Access to this video is restricted. It may be private or region-locked.' },
+          { status: 403 }
+        )
+      }
+      if (error.message?.includes('Private video') || error.message?.includes('Video unavailable') || error.message?.includes('not found')) {
         return NextResponse.json(
           { error: 'Video is unavailable or private' },
           { status: 404 }
         )
       }
+      if (error.message?.includes('Sign in to confirm your age')) {
+        return NextResponse.json(
+          { error: 'This video requires age verification and cannot be downloaded.' },
+          { status: 403 }
+        )
+      }
       throw error
     }
 
-    // Get available formats
-    const formats = ytdl.filterFormats(videoInfo.formats, 'videoandaudio')
+    // Get available formats - prefer combined video+audio formats
+    let formats = ytdl.filterFormats(videoInfo.formats, 'videoandaudio')
     
-    if (formats.length === 0) {
-      return NextResponse.json(
-        { error: 'No video formats with audio available' },
-        { status: 400 }
-      )
-    }
-
     // Map quality string to height
     const qualityMap: { [key: string]: number } = {
       '1080p': 1080,
@@ -84,38 +102,58 @@ export async function POST(request: NextRequest) {
     )
 
     // If exact quality not found, find the closest available quality
-    if (!selectedFormat) {
-      // Try to find formats with audio and video
-      const videoAudioFormats = formats.filter(f => f.hasAudio && f.hasVideo)
-      
-      if (videoAudioFormats.length === 0) {
-        return NextResponse.json(
-          { error: 'No suitable format with audio and video found' },
-          { status: 400 }
-        )
-      }
-
+    if (!selectedFormat && formats.length > 0) {
       // Sort by height and find closest to target
-      videoAudioFormats.sort((a, b) => (b.height || 0) - (a.height || 0))
+      formats.sort((a, b) => (b.height || 0) - (a.height || 0))
       
       // Find format >= target height, or use highest available
-      selectedFormat = videoAudioFormats.find(f => (f.height || 0) >= targetHeight) 
-        || videoAudioFormats[0]
+      selectedFormat = formats.find(f => (f.height || 0) >= targetHeight) 
+        || formats[0]
     }
 
-    if (!selectedFormat) {
-      return NextResponse.json(
-        { error: 'Could not find suitable video format' },
-        { status: 400 }
-      )
-    }
+    // If no combined formats available, we'll let ytdl handle merging video+audio
+    const hasCombinedFormat = selectedFormat && selectedFormat.hasAudio && selectedFormat.hasVideo
 
-    // Get video stream
-    const stream = ytdl(url, {
-      format: selectedFormat,
-      quality: 'highest',
-      filter: 'videoandaudio',
-    })
+    // Get video stream with better error handling
+    let stream
+    try {
+      const requestOptions = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+        },
+      }
+
+      // If we have a combined format, use it
+      if (hasCombinedFormat && selectedFormat) {
+        stream = ytdl(url, {
+          format: selectedFormat,
+          requestOptions,
+        })
+      } else {
+        // Use filter to let ytdl automatically merge video and audio
+        // Try to match quality if possible
+        const qualityOption = quality === '1080p' ? 'highest' : 
+                             quality === '1440p' ? 'highest' :
+                             quality === '2160p' ? 'highest' : 'highest'
+        
+        stream = ytdl(url, {
+          quality: qualityOption,
+          filter: 'videoandaudio',
+          requestOptions,
+        })
+      }
+    } catch (streamError: any) {
+      if (streamError.statusCode === 410) {
+        return NextResponse.json(
+          { error: 'Video format is no longer available. Please try again or select a different quality.' },
+          { status: 410 }
+        )
+      }
+      throw streamError
+    }
 
     // Create a readable stream for the response
     const readableStream = new ReadableStream({
@@ -154,9 +192,32 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('Download error:', error)
+    
+    // Handle specific HTTP status codes
+    if (error.statusCode === 410) {
+      return NextResponse.json(
+        { error: 'Video is no longer available. YouTube may have removed it or changed access permissions.' },
+        { status: 410 }
+      )
+    }
+    if (error.statusCode === 403) {
+      return NextResponse.json(
+        { error: 'Access to this video is restricted. It may be private or region-locked.' },
+        { status: 403 }
+      )
+    }
+    if (error.statusCode === 404) {
+      return NextResponse.json(
+        { error: 'Video not found. Please check the URL and try again.' },
+        { status: 404 }
+      )
+    }
+    
+    // Generic error message
+    const errorMessage = error.message || 'Failed to download video'
     return NextResponse.json(
-      { error: error.message || 'Failed to download video' },
-      { status: 500 }
+      { error: errorMessage },
+      { status: error.statusCode || 500 }
     )
   }
 }

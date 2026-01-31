@@ -18,7 +18,7 @@ A fully functional YouTube video downloader web application optimized for deploy
 - **Language**: TypeScript
 - **UI Components**: shadcn/ui
 - **Styling**: Tailwind CSS
-- **YouTube Library**: ytdl-core
+- **YouTube Library**: @distube/ytdl-core (maintained fork)
 - **Deployment**: Vercel
 
 ## Getting Started
