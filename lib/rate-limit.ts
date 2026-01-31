@@ -11,7 +11,10 @@ interface RateLimitStore {
 const store: RateLimitStore = {}
 
 const RATE_LIMIT_WINDOW = 60 * 1000 // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 10 // 10 requests per minute per IP
+// Increased limit for better user experience - can be adjusted via env variable
+const MAX_REQUESTS_PER_WINDOW = process.env.RATE_LIMIT_MAX_REQUESTS 
+  ? parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) 
+  : 30 // 30 requests per minute per IP (increased from 10)
 
 export function rateLimit(identifier: string): { allowed: boolean; remaining: number; resetTime: number } {
   const now = Date.now()

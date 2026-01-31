@@ -15,12 +15,15 @@ export async function POST(request: NextRequest) {
                request.headers.get('x-real-ip') || 
                'unknown'
     
+    // Rate limiting - more lenient for development
     const rateLimitResult = rateLimit(ip)
     if (!rateLimitResult.allowed) {
+      const resetInSeconds = Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000)
       return NextResponse.json(
         { 
-          error: 'Rate limit exceeded. Please try again later.',
-          resetTime: rateLimitResult.resetTime 
+          error: `Rate limit exceeded. Please try again in ${resetInSeconds} seconds.`,
+          resetTime: rateLimitResult.resetTime,
+          resetInSeconds
         },
         { status: 429 }
       )
