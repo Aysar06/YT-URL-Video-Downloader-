@@ -38,6 +38,13 @@ This guide provides step-by-step instructions for deploying the YouTube Download
    - Wait for deployment to complete (usually 2-3 minutes)
    - Your app will be live at `your-project.vercel.app`
 
+6. **Enable Automatic Deployments** (IMPORTANT)
+   - After the first deployment, go to your project settings
+   - Navigate to **Settings** → **Git**
+   - Ensure **"Automatically deploy commits pushed to the Production Branch"** is enabled
+   - The Production Branch should be set to `main` (or `master`)
+   - This ensures every push to your main branch automatically triggers a new deployment
+
 ### Method 2: Deploy via Vercel CLI
 
 1. **Install Vercel CLI**
@@ -97,6 +104,44 @@ If you're on Vercel Pro plan, you can increase the timeout:
   }
 }
 ```
+
+## Enabling Automatic Deployments
+
+**By default, Vercel should auto-deploy when you push to the main branch.** If it's not working, follow these steps:
+
+### Check Auto-Deploy Settings
+
+1. Go to your Vercel Dashboard
+2. Select your project
+3. Navigate to **Settings** → **Git**
+4. Verify these settings:
+   - ✅ **Production Branch**: Should be `main` (or `master` if that's your default branch)
+   - ✅ **Automatically deploy commits pushed to the Production Branch**: Should be **Enabled**
+   - ✅ **Automatically deploy Pull Requests**: Can be enabled for preview deployments
+
+### If Auto-Deploy is Disabled
+
+1. In **Settings** → **Git**, toggle **"Automatically deploy commits pushed to the Production Branch"** to **ON**
+2. Make sure the **Production Branch** matches your GitHub default branch (`main`)
+3. Save the settings
+
+### Verify Git Integration
+
+1. In **Settings** → **Git**, check that your GitHub repository is connected
+2. The repository should show: `Aysar06/YT-URL-Video-Downloader-`
+3. If not connected, click **"Connect Git Repository"** and select your repo
+
+### Test Auto-Deploy
+
+1. Make a small change (like updating a comment)
+2. Commit and push to `main` branch:
+   ```bash
+   git add .
+   git commit -m "Test auto-deploy"
+   git push origin main
+   ```
+3. Go to Vercel Dashboard → **Deployments**
+4. You should see a new deployment starting automatically within seconds
 
 ## Post-Deployment
 
