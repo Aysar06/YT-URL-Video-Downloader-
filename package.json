@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "private": true,
   "engines": {
-    "node": ">=20.18.1"
+    "node": ">=14.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
+    "@distube/ytdl-core": "4.15.9",
     "@radix-ui/react-select": "^2.1.0",
     "@radix-ui/react-slot": "^1.1.0",
     "class-variance-authority": "^0.7.0",
