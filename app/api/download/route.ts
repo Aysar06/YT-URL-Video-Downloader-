@@ -74,6 +74,17 @@ export async function POST(request: NextRequest) {
       } catch (error: any) {
         retryCount++
         
+        // Handle parsing errors specifically
+        if (error.message?.includes('parsing watch.html') || error.message?.includes('watch.html')) {
+          return NextResponse.json(
+            { 
+              error: 'YouTube has changed their page structure. The downloader library needs to be updated. Please try again later or use a different video.',
+              details: 'This is a known issue with YouTube downloaders. YouTube frequently updates their page structure to prevent automated downloads.'
+            },
+            { status: 503 }
+          )
+        }
+        
         if (retryCount >= maxRetries) {
           // Handle specific error codes
           if (error.statusCode === 410) {
@@ -271,6 +282,17 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('Download error:', error)
+    
+    // Handle parsing errors
+    if (error.message?.includes('parsing watch.html') || error.message?.includes('watch.html')) {
+      return NextResponse.json(
+        { 
+          error: 'YouTube has changed their page structure. The downloader library needs to be updated. This is a temporary issue - please try again later.',
+          details: 'YouTube frequently updates their page structure. The library maintainers are working on a fix.'
+        },
+        { status: 503 }
+      )
+    }
     
     // Handle specific HTTP status codes
     if (error.statusCode === 410 || error.message?.includes('410')) {
